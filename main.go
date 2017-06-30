@@ -47,4 +47,6 @@ func main() {
 		level.Error(logger).Log("msg", "please specify a maildirRootPath")
 		os.Exit(1)
 	}
+
+	walkRootMaildir(*maildirRootPath)
 }
