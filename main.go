@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
 )
@@ -17,6 +19,7 @@ type UserMaildir struct {
 	Metrics  map[string]uint64
 	Checksum []byte
 	Items    []MaildirItem
+	Watcher  *fsnotify.Watcher
 }
 
 // MaildirItem represents the path of an element
@@ -79,6 +82,26 @@ func main() {
 	fmt.Println()
 	for i, m := range *userMaildirs {
 
+		go func(watcher *fsnotify.Watcher) {
+
+			for {
+
+				select {
+
+				case event := <-watcher.Events:
+
+					fmt.Printf("event: '%v' - '%v'\n", event.Name, event.Op.String())
+
+					if (event.Op & fsnotify.Write) == fsnotify.Write {
+						fmt.Printf("modified file: '%v'\n", event.Name)
+					}
+
+				case err := <-watcher.Errors:
+					fmt.Printf("error: '%v'\n", err)
+				}
+			}
+		}(m.Watcher)
+
 		fmt.Printf("=== User %d ===\n\n", (i + 1))
 
 		for k, p := range m.Metrics {
@@ -93,4 +116,6 @@ func main() {
 
 		fmt.Printf("\n\n\n")
 	}
+
+	time.Sleep(15 * time.Second)
 }

@@ -1,11 +1,14 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"crypto/sha512"
 	"io/ioutil"
 	"path/filepath"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 // walkUserMaildir takes the Maildir root path for
@@ -13,7 +16,7 @@ import (
 // deterministically builds a file system representation
 // of MaildirItems for all folders and files below
 // this path. It also calculates initial metrics.
-func (m *UserMaildir) walkUserMaildir(userPath string) error {
+func (m *UserMaildir) walkUserMaildir(userPath string, watcher *fsnotify.Watcher) error {
 
 	shaHash := sha512.New()
 	m.Items = make([]MaildirItem, 0, 10)
@@ -24,8 +27,22 @@ func (m *UserMaildir) walkUserMaildir(userPath string) error {
 			return err
 		}
 
-		// Do not include the user's Maildir root path.
+		// Do not include the user's Maildir root path,
+		// but add it to this user's file system watcher.
 		if path == userPath {
+
+			absPath, err := filepath.Abs(path)
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("absPath: '%v'\n", absPath)
+
+			err = m.Watcher.Add(absPath)
+			if err != nil {
+				return err
+			}
+
 			return nil
 		}
 
@@ -44,7 +61,21 @@ func (m *UserMaildir) walkUserMaildir(userPath string) error {
 		})
 
 		if info.IsDir() {
+
 			m.Metrics["maildir_folders_total"]++
+
+			absPath, err := filepath.Abs(path)
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("absPath: '%v'\n", absPath)
+
+			// Add this sub directory to this user's watcher.
+			err = m.Watcher.Add(absPath)
+			if err != nil {
+				return err
+			}
 		} else if info.Mode().IsRegular() {
 			m.Metrics["maildir_files_total"]++
 		}
@@ -81,12 +112,17 @@ func walkRootMaildir(maildirRootPath string) (*[]UserMaildir, error) {
 
 		if f.IsDir() {
 
-			maildirPath := filepath.Join(maildirRootPath, f.Name())
+			// Create new file system watcher for this user.
+			w, err := fsnotify.NewWatcher()
+			if err != nil {
+				return nil, err
+			}
 
 			// Create new item for this user.
 			userMaildirs = append(userMaildirs, UserMaildir{
 				Metrics: make(map[string]uint64),
 				Items:   nil,
+				Watcher: w,
 			})
 
 			// Set metrics initially to zero.
@@ -95,8 +131,10 @@ func walkRootMaildir(maildirRootPath string) (*[]UserMaildir, error) {
 			userMaildirs[i].Metrics["maildir_files_total"] = 0
 			userMaildirs[i].Metrics["maildir_size_total"] = 0
 
+			maildirPath := filepath.Join(maildirRootPath, f.Name())
+
 			// Inspect user folder content individually.
-			err := userMaildirs[i].walkUserMaildir(maildirPath)
+			err = userMaildirs[i].walkUserMaildir(maildirPath, w)
 			if err != nil {
 				return nil, err
 			}
