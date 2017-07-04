@@ -16,6 +16,7 @@ import (
 // the internal representation of the underlying
 // Maildir structure for one user in the system.
 type UserMaildir struct {
+	done     chan struct{}
 	Metrics  map[string]uint64
 	Checksum []byte
 	Items    []MaildirItem
@@ -82,25 +83,7 @@ func main() {
 	fmt.Println()
 	for i, m := range *userMaildirs {
 
-		go func(watcher *fsnotify.Watcher) {
-
-			for {
-
-				select {
-
-				case event := <-watcher.Events:
-
-					fmt.Printf("event: '%v' - '%v'\n", event.Name, event.Op.String())
-
-					if (event.Op & fsnotify.Write) == fsnotify.Write {
-						fmt.Printf("modified file: '%v'\n", event.Name)
-					}
-
-				case err := <-watcher.Errors:
-					fmt.Printf("error: '%v'\n", err)
-				}
-			}
-		}(m.Watcher)
+		go m.Watch()
 
 		fmt.Printf("=== User %d ===\n\n", (i + 1))
 

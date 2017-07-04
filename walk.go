@@ -120,6 +120,7 @@ func walkRootMaildir(maildirRootPath string) (*[]UserMaildir, error) {
 
 			// Create new item for this user.
 			userMaildirs = append(userMaildirs, UserMaildir{
+				done:    make(chan struct{}),
 				Metrics: make(map[string]uint64),
 				Items:   nil,
 				Watcher: w,
