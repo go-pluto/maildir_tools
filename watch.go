@@ -1,42 +1,80 @@
 package main
 
 import (
-	"fmt"
+	"os"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/log/level"
 )
 
 // Watch receives fsnotify triggers on any of the
 // watched directories in a user's Maildir. It
 // subsequently takes action on a particular event.
-func (m *UserMaildir) Watch() {
+func Watch(logger log.Logger, w *fsnotify.Watcher, done chan struct{}) {
 
 	for {
 
 		select {
 
-		case event := <-m.Watcher.Events:
+		case event := <-w.Events:
 
 			switch event.Op {
 
 			case fsnotify.Create:
-				fmt.Printf("CREATE event on %v\n", event.Name)
+				level.Debug(logger).Log(
+					"operation", "CREATE",
+					"item", event.Name,
+				)
+
+				// Stat new element to check if it is
+				// a directory we need to watch.
+				info, err := os.Stat(event.Name)
+				if err != nil {
+					level.Error(logger).Log(
+						"msg", "error while stat()'ing CREATE element",
+						"err", err,
+					)
+				}
+
+				if info.IsDir() {
+					w.Add(event.Name)
+				}
+
 			case fsnotify.Write:
-				fmt.Printf("WRITE event on %v\n", event.Name)
+				level.Debug(logger).Log(
+					"operation", "WRITE ",
+					"item", event.Name,
+				)
+
 			case fsnotify.Remove:
-				fmt.Printf("REMOVE event on %v\n", event.Name)
+				level.Debug(logger).Log(
+					"operation", "REMOVE",
+					"item", event.Name,
+				)
+
 			case fsnotify.Rename:
-				fmt.Printf("RENAME event on %v\n", event.Name)
+				level.Debug(logger).Log(
+					"operation", "RENAME",
+					"item", event.Name,
+				)
+
 			case fsnotify.Chmod:
-				fmt.Printf("CHMOD event on %v\n", event.Name)
+				level.Debug(logger).Log(
+					"operation", "CHMOD ",
+					"item", event.Name,
+				)
 			}
 
-		case err := <-m.Watcher.Errors:
-			fmt.Printf("ERROR: %v\n", err)
+		case err := <-w.Errors:
+			level.Error(logger).Log(
+				"msg", "error occured while watching fsnotify triggers",
+				"err", err,
+			)
 			return
 
-		case <-m.done:
-			fmt.Println("DONE")
+		case <-done:
+			level.Debug(logger).Log("msg", "done watching fsnotify triggers")
 			return
 		}
 	}

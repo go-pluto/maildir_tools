@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"crypto/sha512"
@@ -16,7 +15,7 @@ import (
 // deterministically builds a file system representation
 // of MaildirItems for all folders and files below
 // this path. It also calculates initial metrics.
-func (m *UserMaildir) walkUserMaildir(userPath string, watcher *fsnotify.Watcher) error {
+func (m *UserMaildir) walkUserMaildir(userPath string) error {
 
 	shaHash := sha512.New()
 	m.Items = make([]MaildirItem, 0, 10)
@@ -35,8 +34,6 @@ func (m *UserMaildir) walkUserMaildir(userPath string, watcher *fsnotify.Watcher
 			if err != nil {
 				return err
 			}
-
-			fmt.Printf("absPath: '%v'\n", absPath)
 
 			err = m.Watcher.Add(absPath)
 			if err != nil {
@@ -68,8 +65,6 @@ func (m *UserMaildir) walkUserMaildir(userPath string, watcher *fsnotify.Watcher
 			if err != nil {
 				return err
 			}
-
-			fmt.Printf("absPath: '%v'\n", absPath)
 
 			// Add this sub directory to this user's watcher.
 			err = m.Watcher.Add(absPath)
@@ -135,7 +130,7 @@ func walkRootMaildir(maildirRootPath string) (*[]UserMaildir, error) {
 			maildirPath := filepath.Join(maildirRootPath, f.Name())
 
 			// Inspect user folder content individually.
-			err = userMaildirs[i].walkUserMaildir(maildirPath, w)
+			err = userMaildirs[i].walkUserMaildir(maildirPath)
 			if err != nil {
 				return nil, err
 			}

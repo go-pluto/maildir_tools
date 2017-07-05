@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
+	"syscall"
+
+	"os/signal"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-kit/kit/log"
@@ -37,7 +39,7 @@ func initLogger(loglevel string) log.Logger {
 	logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
 	logger = log.With(logger,
 		"ts", log.DefaultTimestampUTC,
-		"caller", log.DefaultCaller,
+		"caller", log.Caller(5),
 	)
 
 	switch strings.ToLower(loglevel) {
@@ -69,6 +71,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Create a signal channel to handle program termination.
+	sigs := make(chan os.Signal, 1)
+
+	// Register sigs channel to be triggered
+	// when SIGINT or SIGTERM are invoked.
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
 	// Retrieve internal representation of all
 	// folders and files per user in specified
 	// Maildir directory.
@@ -80,25 +89,18 @@ func main() {
 		)
 	}
 
-	fmt.Println()
-	for i, m := range *userMaildirs {
-
-		go m.Watch()
-
-		fmt.Printf("=== User %d ===\n\n", (i + 1))
-
-		for k, p := range m.Metrics {
-			fmt.Printf("%s => %d\n", k, p)
-		}
-
-		fmt.Printf("sha512 checksum => %x\n\n", m.Checksum)
-
-		for o, e := range m.Items {
-			fmt.Printf("%2d: \"%s\" - %db\n", o, e.Path, e.Size)
-		}
-
-		fmt.Printf("\n\n\n")
+	// Kick-off fsnotify trigger processing for
+	// all watched Maildirs.
+	for _, m := range *userMaildirs {
+		go Watch(logger, m.Watcher, m.done)
 	}
 
-	time.Sleep(15 * time.Second)
+	// Wait until we receive a program termination.
+	<-sigs
+	fmt.Println()
+
+	// Instruct watcher to finish.
+	for _, m := range *userMaildirs {
+		m.done <- struct{}{}
+	}
 }
