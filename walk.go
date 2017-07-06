@@ -56,7 +56,7 @@ func walkRootMaildir(maildirRootPath string) ([]*UserMaildir, error) {
 // representation of MaildirItems for all folders
 // and files below the user's Maildir path when
 // triggered. It also calculates initial metrics.
-func (m *UserMaildir) walk(logger log.Logger, metrics *Metrics, done chan struct{}) {
+func (m *UserMaildir) walk(logger log.Logger, metrics *Metrics) {
 
 	// Close channel on function exit.
 	defer close(m.walkTrigger)
@@ -146,9 +146,6 @@ func (m *UserMaildir) walk(logger log.Logger, metrics *Metrics, done chan struct
 				"user":   m.userPath,
 				"sha512": fmt.Sprintf("%x", shaHash.Sum(nil)),
 			}).Set(numSize)
-
-			// Signal walk completion downstream.
-			done <- struct{}{}
 
 		case <-m.done:
 			level.Debug(logger).Log("msg", fmt.Sprintf("done walking Maildir for %s", m.userPath))

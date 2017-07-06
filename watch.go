@@ -14,6 +14,8 @@ import (
 // subsequently takes action on a particular event.
 func (m *UserMaildir) watch(logger log.Logger) {
 
+	defer close(m.watchTrigger)
+
 	for {
 
 		select {
@@ -37,7 +39,6 @@ func (m *UserMaildir) watch(logger log.Logger) {
 						"msg", "error while stat()'ing CREATE element",
 						"err", err,
 					)
-					close(m.watchTrigger)
 					return
 				}
 
@@ -94,12 +95,10 @@ func (m *UserMaildir) watch(logger log.Logger) {
 				"msg", "error occured while watching fsnotify triggers",
 				"err", err,
 			)
-			close(m.watchTrigger)
 			return
 
 		case <-m.done:
 			level.Debug(logger).Log("msg", fmt.Sprintf("done watching fsnotify triggers for %s"))
-			close(m.watchTrigger)
 			return
 		}
 	}

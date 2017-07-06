@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"syscall"
+	"time"
 
 	"net/http"
 	"os/signal"
@@ -134,18 +135,14 @@ func main() {
 		)
 	}
 
-	walkDone := make(chan struct{}, len(userMaildirs))
-
 	// Walk the Maildirs of all users present in the
 	// service in background and await re-walk triggers.
 	for _, m := range userMaildirs {
-		go m.walk(logger, metrics, walkDone)
+		go m.walk(logger, metrics)
 		m.walkTrigger <- struct{}{}
 	}
 
-	for i := 0; i < len(userMaildirs); i++ {
-		<-walkDone
-	}
+	time.Sleep(2 * time.Second)
 
 	// Kick-off fsnotify trigger processing for
 	// all watched Maildirs.
