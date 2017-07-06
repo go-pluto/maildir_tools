@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/fsnotify/fsnotify"
@@ -8,20 +9,21 @@ import (
 	"github.com/go-kit/kit/log/level"
 )
 
-// Watch receives fsnotify triggers on any of the
+// watch receives fsnotify triggers on any of the
 // watched directories in a user's Maildir. It
 // subsequently takes action on a particular event.
-func Watch(logger log.Logger, w *fsnotify.Watcher, done chan struct{}) {
+func (m *UserMaildir) watch(logger log.Logger) {
 
 	for {
 
 		select {
 
-		case event := <-w.Events:
+		case event := <-m.watcher.Events:
 
 			switch event.Op {
 
 			case fsnotify.Create:
+
 				level.Debug(logger).Log(
 					"operation", "CREATE",
 					"item", event.Name,
@@ -35,46 +37,69 @@ func Watch(logger log.Logger, w *fsnotify.Watcher, done chan struct{}) {
 						"msg", "error while stat()'ing CREATE element",
 						"err", err,
 					)
+					close(m.watchTrigger)
+					return
 				}
 
 				if info.IsDir() {
-					w.Add(event.Name)
+					m.watcher.Add(event.Name)
 				}
 
+				// Trigger Maildir walk.
+				m.walkTrigger <- struct{}{}
+
 			case fsnotify.Write:
+
 				level.Debug(logger).Log(
 					"operation", "WRITE ",
 					"item", event.Name,
 				)
 
+				// Trigger Maildir walk.
+				m.walkTrigger <- struct{}{}
+
 			case fsnotify.Remove:
+
 				level.Debug(logger).Log(
 					"operation", "REMOVE",
 					"item", event.Name,
 				)
 
+				// Trigger Maildir walk.
+				m.walkTrigger <- struct{}{}
+
 			case fsnotify.Rename:
+
 				level.Debug(logger).Log(
 					"operation", "RENAME",
 					"item", event.Name,
 				)
 
+				// Trigger Maildir walk.
+				m.walkTrigger <- struct{}{}
+
 			case fsnotify.Chmod:
+
 				level.Debug(logger).Log(
 					"operation", "CHMOD ",
 					"item", event.Name,
 				)
+
+				// Trigger Maildir walk.
+				m.walkTrigger <- struct{}{}
 			}
 
-		case err := <-w.Errors:
+		case err := <-m.watcher.Errors:
 			level.Error(logger).Log(
 				"msg", "error occured while watching fsnotify triggers",
 				"err", err,
 			)
+			close(m.watchTrigger)
 			return
 
-		case <-done:
-			level.Debug(logger).Log("msg", "done watching fsnotify triggers")
+		case <-m.done:
+			level.Debug(logger).Log("msg", fmt.Sprintf("done watching fsnotify triggers for %s"))
+			close(m.watchTrigger)
 			return
 		}
 	}
