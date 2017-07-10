@@ -21,14 +21,7 @@ func (m *UserMaildir) watch(logger log.Logger) {
 
 		case event := <-m.watcher.Events:
 
-			switch event.Op {
-
-			case fsnotify.Create:
-
-				level.Debug(logger).Log(
-					"operation", "CREATE",
-					"item", event.Name,
-				)
+			if event.Op == fsnotify.Create {
 
 				// Stat new element to check if it is
 				// a directory we need to watch.
@@ -54,50 +47,10 @@ func (m *UserMaildir) watch(logger log.Logger) {
 						)
 					}
 				}
-
-				// Trigger Maildir walk.
-				m.walkTrigger <- struct{}{}
-
-			case fsnotify.Write:
-
-				level.Debug(logger).Log(
-					"operation", "WRITE",
-					"item", event.Name,
-				)
-
-				// Trigger Maildir walk.
-				m.walkTrigger <- struct{}{}
-
-			case fsnotify.Remove:
-
-				level.Debug(logger).Log(
-					"operation", "REMOVE",
-					"item", event.Name,
-				)
-
-				// Trigger Maildir walk.
-				m.walkTrigger <- struct{}{}
-
-			case fsnotify.Rename:
-
-				level.Debug(logger).Log(
-					"operation", "RENAME",
-					"item", event.Name,
-				)
-
-				// Trigger Maildir walk.
-				m.walkTrigger <- struct{}{}
-
-			case fsnotify.Chmod:
-
-				level.Debug(logger).Log(
-					"operation", "CHMOD",
-					"item", event.Name,
-				)
-
-				// Trigger Maildir walk.
-				m.walkTrigger <- struct{}{}
 			}
+
+			// Trigger Maildir walk.
+			m.walkTrigger <- struct{}{}
 
 		case err := <-m.watcher.Errors:
 			level.Error(logger).Log(
