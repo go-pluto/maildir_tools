@@ -5,13 +5,13 @@ import (
 	"hash"
 	"os"
 
-	"crypto/sha512"
 	"io/ioutil"
 	"path/filepath"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
+	"github.com/minio/blake2b-simd"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -71,7 +71,7 @@ func (m *UserMaildir) walk(logger log.Logger, metrics *Metrics) {
 			var numFolders float64 = 0.0
 			var numFiles float64 = 0.0
 			var numSize float64 = 0.0
-			var shaHash hash.Hash = sha512.New()
+			var blakeHash hash.Hash = blake2b.New512()
 
 			err := filepath.Walk(m.userPath, func(path string, info os.FileInfo, err error) error {
 
@@ -124,7 +124,7 @@ func (m *UserMaildir) walk(logger log.Logger, metrics *Metrics) {
 				numSize += float64(info.Size())
 
 				// Add element to checksum calculation.
-				shaHash.Write([]byte(path))
+				blakeHash.Write([]byte(path))
 
 				return nil
 			})
@@ -137,7 +137,7 @@ func (m *UserMaildir) walk(logger log.Logger, metrics *Metrics) {
 			}
 
 			// Calculate new SHA512 checksum of this walk.
-			newChecksum := fmt.Sprintf("%x", shaHash.Sum(nil))
+			newChecksum := fmt.Sprintf("%x", blakeHash.Sum(nil))
 
 			// Set updated metrics in supplied struct.
 			metrics.elements.With(prometheus.Labels{"user": m.userPath}).Set(numElems)
@@ -146,8 +146,8 @@ func (m *UserMaildir) walk(logger log.Logger, metrics *Metrics) {
 
 			// Include the calculated SHA512 checksum for this Maildir.
 			metrics.size.With(prometheus.Labels{
-				"user":   m.userPath,
-				"sha512": newChecksum,
+				"user":    m.userPath,
+				"blake2b": newChecksum,
 			}).Set(numSize)
 
 			if m.lastChecksum != newChecksum {

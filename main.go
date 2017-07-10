@@ -86,8 +86,8 @@ func createMetrics() *Metrics {
 
 	maildirSize := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "maildir_size",
-		Help: "Size of a user's Maildir (folders and files) in bytes, associated with a SHA512 checksum of all folder and file names.",
-	}, []string{"user", "sha512"})
+		Help: "Size of a user's Maildir (folders and files) in bytes, associated with a BLAKE2b checksum of all folder and file names.",
+	}, []string{"user", "blake2b"})
 
 	// Register all of them with Prometheus.
 	prometheus.MustRegister(maildirElements)
