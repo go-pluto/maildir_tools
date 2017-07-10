@@ -25,6 +25,7 @@ import (
 type UserMaildir struct {
 	userPath     string
 	watcher      *fsnotify.Watcher
+	lastChecksum string
 	walkTrigger  chan struct{}
 	watchTrigger chan struct{}
 	done         chan struct{}

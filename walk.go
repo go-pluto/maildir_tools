@@ -136,6 +136,9 @@ func (m *UserMaildir) walk(logger log.Logger, metrics *Metrics) {
 				return
 			}
 
+			// Calculate new SHA512 checksum of this walk.
+			newChecksum := fmt.Sprintf("%x", shaHash.Sum(nil))
+
 			// Set updated metrics in supplied struct.
 			metrics.elements.With(prometheus.Labels{"user": m.userPath}).Set(numElems)
 			metrics.folders.With(prometheus.Labels{"user": m.userPath}).Set(numFolders)
@@ -144,8 +147,19 @@ func (m *UserMaildir) walk(logger log.Logger, metrics *Metrics) {
 			// Include the calculated SHA512 checksum for this Maildir.
 			metrics.size.With(prometheus.Labels{
 				"user":   m.userPath,
-				"sha512": fmt.Sprintf("%x", shaHash.Sum(nil)),
+				"sha512": newChecksum,
 			}).Set(numSize)
+
+			if m.lastChecksum != newChecksum {
+
+				// Delete metric with outdated checksum.
+				if ok := metrics.size.DeleteLabelValues(m.userPath, m.lastChecksum); !ok {
+					level.Warn(logger).Log("msg", "failed to delete outdated metric (wrong label order?)")
+				}
+
+				// Update last seen checksum value for next walk.
+				m.lastChecksum = newChecksum
+			}
 
 		case <-m.done:
 			level.Debug(logger).Log("msg", fmt.Sprintf("done walking Maildir for %s", m.userPath))
