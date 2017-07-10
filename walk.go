@@ -153,8 +153,9 @@ func (m *UserMaildir) walk(logger log.Logger, metrics *Metrics) {
 			if m.lastChecksum != newChecksum {
 
 				// Delete metric with outdated checksum.
-				if ok := metrics.size.DeleteLabelValues(m.userPath, m.lastChecksum); !ok {
-					level.Warn(logger).Log("msg", "failed to delete outdated metric (wrong label order?)")
+				ok := metrics.size.DeleteLabelValues(m.userPath, m.lastChecksum)
+				if !ok {
+					level.Warn(logger).Log("msg", "failed to delete outdated metric (just started or wrong label order?)")
 				}
 
 				// Update last seen checksum value for next walk.
@@ -162,7 +163,10 @@ func (m *UserMaildir) walk(logger log.Logger, metrics *Metrics) {
 			}
 
 		case <-m.done:
-			level.Debug(logger).Log("msg", fmt.Sprintf("done walking Maildir for %s", m.userPath))
+			level.Info(logger).Log(
+				"msg", "done walking Maildir",
+				"user", m.userPath,
+			)
 			return
 		}
 	}

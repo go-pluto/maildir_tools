@@ -47,7 +47,7 @@ func initLogger(loglevel string) log.Logger {
 	logger := log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
 	logger = log.With(logger,
 		"ts", log.DefaultTimestampUTC,
-		"caller", log.Caller(4),
+		"caller", log.Caller(5),
 	)
 
 	switch strings.ToLower(loglevel) {
@@ -161,11 +161,16 @@ func main() {
 		// the Prometheus scraper in background.
 		err := server.ListenAndServe()
 		if err != nil {
-			level.Error(logger).Log(
-				"msg", "error while running HTTP server for /metrics",
-				"err", err,
-			)
-			os.Exit(1)
+
+			if err.Error() != "http: Server closed" {
+				level.Error(logger).Log(
+					"msg", "error while running HTTP server for /metrics",
+					"err", err,
+				)
+				os.Exit(1)
+			} else {
+				level.Info(logger).Log("msg", "shutting down HTTP server for /metrics")
+			}
 		}
 	}()
 
@@ -174,12 +179,21 @@ func main() {
 	fmt.Println()
 
 	// Perform graceful shutdown of HTTP server.
-	level.Info(logger).Log("msg", "shutting down HTTP server for /metrics")
 	server.Shutdown(context.Background())
 
-	// Instruct watcher to finish.
 	for _, m := range userMaildirs {
+
+		// Instruct watchers to finish.
 		m.done <- struct{}{}
 		m.done <- struct{}{}
+
+		// Close watcher.
+		err := m.watcher.Close()
+		if err != nil {
+			level.Error(logger).Log(
+				"msg", "failed to close watcher",
+				"err", err,
+			)
+		}
 	}
 }

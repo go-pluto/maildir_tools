@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/fsnotify/fsnotify"
@@ -43,7 +42,17 @@ func (m *UserMaildir) watch(logger log.Logger) {
 				}
 
 				if info.IsDir() {
-					m.watcher.Add(event.Name)
+
+					// If new element is a directory,
+					// add it to watcher.
+					err := m.watcher.Add(event.Name)
+					if err != nil {
+						level.Error(logger).Log(
+							"msg", "failed to add element to watcher",
+							"element", event.Name,
+							"err", err,
+						)
+					}
 				}
 
 				// Trigger Maildir walk.
@@ -52,7 +61,7 @@ func (m *UserMaildir) watch(logger log.Logger) {
 			case fsnotify.Write:
 
 				level.Debug(logger).Log(
-					"operation", "WRITE ",
+					"operation", "WRITE",
 					"item", event.Name,
 				)
 
@@ -82,7 +91,7 @@ func (m *UserMaildir) watch(logger log.Logger) {
 			case fsnotify.Chmod:
 
 				level.Debug(logger).Log(
-					"operation", "CHMOD ",
+					"operation", "CHMOD",
 					"item", event.Name,
 				)
 
@@ -98,7 +107,10 @@ func (m *UserMaildir) watch(logger log.Logger) {
 			return
 
 		case <-m.done:
-			level.Debug(logger).Log("msg", fmt.Sprintf("done watching fsnotify triggers for %s"))
+			level.Info(logger).Log(
+				"msg", "done watching fsnotify triggers",
+				"user", m.userPath,
+			)
 			return
 		}
 	}
