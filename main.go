@@ -125,6 +125,13 @@ func main() {
 	// Create metrics struct.
 	metrics := createMetrics()
 
+	// Sleep 15 seconds to wait for user Maildirs
+	// potentially missing at program start up.
+	level.Debug(logger).Log(
+		"msg", "waiting 15 seconds for missing Maildirs to be created...",
+	)
+	time.Sleep(15 * time.Second)
+
 	// Retrieve internal representation of all
 	// folders and files per user in specified
 	// Maildir directory.
@@ -135,6 +142,11 @@ func main() {
 			"err", err,
 		)
 	}
+
+	level.Error(logger).Log(
+		"msg", "found users on Maildir file system to expose",
+		"user_count", len(userMaildirs),
+	)
 
 	// Walk the Maildirs of all users present in the
 	// service in background and await re-walk triggers.
