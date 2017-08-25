@@ -75,6 +75,10 @@ func (m *UserMaildir) walk(logger log.Logger, metrics *Metrics) {
 
 			err := filepath.Walk(m.userPath, func(path string, info os.FileInfo, err error) error {
 
+				fmt.Printf("m.userPath: '%s'\n", m.userPath)
+				fmt.Printf("path: '%s'\n", path)
+				fmt.Printf("info: '%v'\n", info)
+
 				if err != nil {
 					return err
 				}
