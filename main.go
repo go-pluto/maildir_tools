@@ -157,6 +157,11 @@ func main() {
 
 	go func() {
 
+		level.Info(logger).Log(
+			"msg", "mildir_exporter now listens for http requests",
+			"addr", ":9275",
+		)
+
 		// Start HTTP server for exposing /metrics to
 		// the Prometheus scraper in background.
 		err := server.ListenAndServe()
