@@ -104,17 +104,21 @@ func (m *UserMaildir) walk(logger log.Logger, metrics *Metrics) {
 
 				if info.IsDir() {
 
-					numFolders++
+					// Only watch cur folder of each Maildir.
+					if info.Name() == "cur" {
 
-					absPath, err := filepath.Abs(path)
-					if err != nil {
-						return err
-					}
+						numFolders++
 
-					// Add this sub directory to this user's watcher.
-					err = m.watcher.Add(absPath)
-					if err != nil {
-						return err
+						absPath, err := filepath.Abs(path)
+						if err != nil {
+							return err
+						}
+
+						// Add this sub directory to this user's watcher.
+						err = m.watcher.Add(absPath)
+						if err != nil {
+							return err
+						}
 					}
 				} else if info.Mode().IsRegular() {
 					numFiles++
