@@ -105,6 +105,8 @@ func createMetrics() *Metrics {
 
 func main() {
 
+	select {}
+
 	// metricsPath := flag.String("metricsPath", "/metrics", "Specify where to expose collected Maildir metrics.")
 	maildirRootPath := flag.String("maildirRootPath", "", "Specify path to directory containing all users' Maildirs.")
 	logLevel := flag.String("logLevel", "", "Set verbosity level of logging.")
