@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"syscall"
@@ -15,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 
+	"cloud.google.com/go/storage"
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
@@ -93,6 +95,7 @@ func main() {
 	maildirDumpPath := flag.String("maildirDumpPath", "dumps", "Specify path to directory for all 'du -s' dumps.")
 	usersFlag := flag.String("users", "", "Users to watch, separated by comma.")
 	intervalFlag := flag.Duration("interval", 3*time.Second, "The interval to sleep between runs.")
+	workerNameFlag := flag.String("workerName", "", "The name of the worker this maildir_exporter works for.")
 	logLevel := flag.String("logLevel", "", "Set verbosity level of logging.")
 	flag.Parse()
 
@@ -117,9 +120,32 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Check that associated Google Cloud Project
+	// is set as environment variable.
+	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
+	if projectID == "" {
+		level.Error(logger).Log("msg", "env flag must be set", "env", "GOOGLE_CLOUD_PROJECT")
+		os.Exit(1)
+	}
+
+	// Make sure that we possess Application Default Credentials.
+	appCredentials := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	if appCredentials == "" {
+		level.Error(logger).Log("msg", "env flag must be set", "env", "GOOGLE_APPLICATION_CREDENTIALS")
+		os.Exit(1)
+	}
+
 	// Catch SIGINT and SIGTERM signals.
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	// Connect to GCS for log file uploading.
+	ctx := context.Background()
+	client, err := storage.NewClient(ctx)
+	if err != nil {
+		level.Error(logger).Log("msg", "failed to open storage client", "err", err)
+		os.Exit(1)
+	}
 
 	go func() {
 		users := strings.Split(*usersFlag, ",")
@@ -190,4 +216,37 @@ func main() {
 
 	// Perform graceful shutdown of HTTP server.
 	server.Shutdown(context.Background())
+
+	// When gracefully shutting down, upload all dumps to GCS.
+
+	files, err := ioutil.ReadDir(*maildirDumpPath)
+	if err != nil {
+		level.Error(logger).Log("msg", "failed to read dump dir for uploading", "err", err)
+		os.Exit(1)
+	}
+
+	bucket := client.Bucket("pluto-benchmark")
+
+	for _, file := range files {
+		path := filepath.Join(*workerNameFlag, file.Name())
+		obj := bucket.Object(path).NewWriter(ctx)
+
+		content, err := os.Open(path)
+		if err != nil {
+			level.Error(logger).Log("msg", "failed to open dump", "err", err)
+			os.Exit(1)
+		}
+
+		_, err = io.Copy(obj, content)
+		if err != nil {
+			level.Error(logger).Log("msg", "failed to open dump", "err", err)
+			content.Close()
+		}
+
+		content.Close()
+
+		if err = obj.Close(); err != nil {
+			level.Error(logger).Log("msg", "failed to close bucket object", "err", err)
+		}
+	}
 }
