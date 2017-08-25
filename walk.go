@@ -75,12 +75,8 @@ func (m *UserMaildir) walk(logger log.Logger, metrics *Metrics) {
 
 			err := filepath.Walk(m.userPath, func(path string, info os.FileInfo, err error) error {
 
-				fmt.Printf("m.userPath: '%s'\n", m.userPath)
-				fmt.Printf("path: '%s'\n", path)
-				fmt.Printf("info: '%v'\n", info)
-
 				if err != nil {
-					return err
+					return fmt.Errorf("walk error: %v", err)
 				}
 
 				// Do not include the user's Maildir root path,
@@ -89,12 +85,12 @@ func (m *UserMaildir) walk(logger log.Logger, metrics *Metrics) {
 
 					absPath, err := filepath.Abs(path)
 					if err != nil {
-						return err
+						return fmt.Errorf("path == m.userPath filepath error: %v", err)
 					}
 
 					err = m.watcher.Add(absPath)
 					if err != nil {
-						return err
+						return fmt.Errorf("path == m.userPath watcher error: %v", err)
 					}
 
 					return nil
@@ -109,20 +105,21 @@ func (m *UserMaildir) walk(logger log.Logger, metrics *Metrics) {
 				if info.IsDir() {
 
 					// Only watch cur folder of each Maildir.
-					if info.Name() == "cur" {
+					if info.Name() != "cur" {
+						return nil
+					}
 
-						numFolders++
+					numFolders++
 
-						absPath, err := filepath.Abs(path)
-						if err != nil {
-							return err
-						}
+					absPath, err := filepath.Abs(path)
+					if err != nil {
+						return fmt.Errorf("info.IsDir() filepath error: %v", err)
+					}
 
-						// Add this sub directory to this user's watcher.
-						err = m.watcher.Add(absPath)
-						if err != nil {
-							return err
-						}
+					// Add this sub directory to this user's watcher.
+					err = m.watcher.Add(absPath)
+					if err != nil {
+						return fmt.Errorf("info.IsDir() watcher error: %v", err)
 					}
 				} else if info.Mode().IsRegular() {
 					numFiles++
