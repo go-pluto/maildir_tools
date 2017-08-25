@@ -9,8 +9,11 @@ import (
 	"syscall"
 	"time"
 
+	"io/ioutil"
 	"net/http"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-kit/kit/log"
@@ -34,10 +37,7 @@ type UserMaildir struct {
 // Metrics aggregates all four gauges we expose
 // to Prometheus for insights into underlying Maildirs.
 type Metrics struct {
-	elements *prometheus.GaugeVec
-	folders  *prometheus.GaugeVec
-	files    *prometheus.GaugeVec
-	size     *prometheus.GaugeVec
+	duration prometheus.Histogram
 }
 
 // initLogger initializes a JSON gokit-logger set
@@ -68,53 +68,52 @@ func initLogger(loglevel string) log.Logger {
 // Prometheus-exposed metrics.
 func createMetrics() *Metrics {
 
-	// Prepare four Prometheus-exposed gauge vectors.
-	maildirElements := prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "maildir_elements",
-		Help: "Number of elements (folders and files) in a user's Maildir.",
-	}, []string{"user"})
-
-	maildirFolders := prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "maildir_folders",
-		Help: "Number of folders in a user's Maildir.",
-	}, []string{"user"})
-
-	maildirFiles := prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "maildir_files",
-		Help: "Number of files in a user's Maildir.",
-	}, []string{"user"})
-
-	maildirSize := prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "maildir_size_bytes",
-		Help: "Size of a user's Maildir (folders and files) in bytes, associated with a BLAKE2b checksum of all folder and file names.",
-	}, []string{"user", "blake2b"})
+	maildirDuration := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "maildir_duration",
+		Help:    "Duration for maildir runs",
+		Buckets: prometheus.DefBuckets,
+	})
 
 	// Register all of them with Prometheus.
-	prometheus.MustRegister(maildirElements)
-	prometheus.MustRegister(maildirFolders)
-	prometheus.MustRegister(maildirFiles)
-	prometheus.MustRegister(maildirSize)
+	prometheus.MustRegister(maildirDuration)
 
 	return &Metrics{
-		elements: maildirElements,
-		folders:  maildirFolders,
-		files:    maildirFiles,
-		size:     maildirSize,
+		duration: maildirDuration,
 	}
 }
 
-func main() {
+func userDu(path string) ([]byte, error) {
+	cmd := exec.Command("/usr/bin/du", "-s", path)
+	return cmd.CombinedOutput()
+}
 
+func main() {
 	// metricsPath := flag.String("metricsPath", "/metrics", "Specify where to expose collected Maildir metrics.")
 	maildirRootPath := flag.String("maildirRootPath", "", "Specify path to directory containing all users' Maildirs.")
+	maildirDumpPath := flag.String("maildirDumpPath", "dumps", "Specify path to directory for all 'du -s' dumps.")
+	usersFlag := flag.String("users", "", "Users to watch, separated by comma.")
+	intervalFlag := flag.Duration("interval", 3*time.Second, "The interval to sleep between runs.")
 	logLevel := flag.String("logLevel", "", "Set verbosity level of logging.")
 	flag.Parse()
 
 	// Create gokit-logger based on specified verbosity level.
 	logger := initLogger(*logLevel)
 
+	// Create metrics struct.
+	metrics := createMetrics()
+
 	if *maildirRootPath == "" {
-		level.Error(logger).Log("msg", "maildirElementsplease specify a maildirRootPath")
+		level.Error(logger).Log("msg", "please specify a maildirRootPath")
+		os.Exit(1)
+	}
+
+	if *usersFlag == "" {
+		level.Error(logger).Log("msg", "please specify users to watch")
+		os.Exit(1)
+	}
+
+	if err := os.MkdirAll(*maildirDumpPath, 0777); err != nil {
+		level.Error(logger).Log("msg", "failed to create dump folder", "path", *maildirDumpPath, "err", err)
 		os.Exit(1)
 	}
 
@@ -122,34 +121,40 @@ func main() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
-	// Create metrics struct.
-	metrics := createMetrics()
+	go func() {
+		users := strings.Split(*usersFlag, ",")
 
-	// Retrieve internal representation of all
-	// folders and files per user in specified
-	// Maildir directory.
-	userMaildirs, err := walkRootMaildir(*maildirRootPath)
-	if err != nil {
-		level.Error(logger).Log(
-			"msg", fmt.Sprintf("failed to walk user Maildirs at %s", *maildirRootPath),
-			"err", err,
-		)
-	}
+		for {
+			start := time.Now()
 
-	// Walk the Maildirs of all users present in the
-	// service in background and await re-walk triggers.
-	for _, m := range userMaildirs {
-		go m.walk(logger, metrics)
-		m.walkTrigger <- struct{}{}
-	}
+			var combined []byte
+			for _, user := range users {
+				out, err := userDu(filepath.Join(*maildirRootPath, user))
+				if err != nil {
+					level.Warn(logger).Log(
+						"msg", "failed to run 'du -s'",
+						"user", user,
+						"err", err,
+					)
+					continue
+				}
+				combined = append(combined, out...)
+			}
 
-	time.Sleep(2 * time.Second)
+			path := filepath.Join(*maildirDumpPath, fmt.Sprintf("%d", start.Unix()))
+			if err := ioutil.WriteFile(path, combined, 0777); err != nil {
+				level.Warn(logger).Log(
+					"msg", "failed to save dump",
+					"path", path,
+				)
+				continue
+			}
 
-	// Kick-off fsnotify trigger processing for
-	// all watched Maildirs.
-	for _, m := range userMaildirs {
-		go m.watch(logger)
-	}
+			metrics.duration.Observe(time.Since(start).Seconds())
+
+			time.Sleep(*intervalFlag)
+		}
+	}()
 
 	// Define where we want to expose metrics via HTTP.
 	http.Handle("/metrics", promhttp.Handler())
@@ -185,20 +190,4 @@ func main() {
 
 	// Perform graceful shutdown of HTTP server.
 	server.Shutdown(context.Background())
-
-	for _, m := range userMaildirs {
-
-		// Instruct watchers to finish.
-		m.done <- struct{}{}
-		m.done <- struct{}{}
-
-		// Close watcher.
-		err := m.watcher.Close()
-		if err != nil {
-			level.Error(logger).Log(
-				"msg", "failed to close watcher",
-				"err", err,
-			)
-		}
-	}
 }
