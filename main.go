@@ -73,7 +73,7 @@ func createMetrics() *Metrics {
 	maildirDuration := prometheus.NewHistogram(prometheus.HistogramOpts{
 		Name:    "maildir_duration",
 		Help:    "Duration for maildir runs",
-		Buckets: prometheus.DefBuckets,
+		Buckets: []float64{.01, .02, .03, .04, .05, .06, .07, .08, .09, .10, .15, .20, .25, .30, .35, .40, .45, .50, 1},
 	})
 
 	// Register all of them with Prometheus.
