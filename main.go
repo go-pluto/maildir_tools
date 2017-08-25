@@ -158,7 +158,7 @@ func main() {
 	go func() {
 
 		level.Info(logger).Log(
-			"msg", "mildir_exporter now listens for http requests",
+			"msg", "maildir_exporter now listens for http requests",
 			"addr", ":9275",
 		)
 
