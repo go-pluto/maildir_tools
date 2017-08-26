@@ -233,10 +233,10 @@ func main() {
 	bucket := client.Bucket("pluto-benchmark")
 
 	for _, file := range files {
-		path := filepath.Join(*workerNameFlag, file.Name())
-		obj := bucket.Object(path).NewWriter(ctx)
+		objPath := filepath.Join(*workerNameFlag, file.Name())
+		obj := bucket.Object(objPath).NewWriter(ctx)
 
-		content, err := os.Open(path)
+		content, err := os.Open(filepath.Join(*maildirDumpPath, file.Name()))
 		if err != nil {
 			level.Error(logger).Log("msg", "failed to open dump", "err", err)
 			os.Exit(1)
