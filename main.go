@@ -17,24 +17,12 @@ import (
 	"path/filepath"
 
 	"cloud.google.com/go/storage"
-	"github.com/fsnotify/fsnotify"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
+	"github.com/oklog/oklog/pkg/group"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
-
-// UserMaildir collects the exported metrics and
-// the internal representation of the underlying
-// Maildir structure for one user in the system.
-type UserMaildir struct {
-	userPath     string
-	watcher      *fsnotify.Watcher
-	lastChecksum string
-	walkTrigger  chan struct{}
-	watchTrigger chan struct{}
-	done         chan struct{}
-}
 
 // Metrics aggregates all four gauges we expose
 // to Prometheus for insights into underlying Maildirs.
@@ -152,75 +140,101 @@ func main() {
 		os.Exit(1)
 	}
 
-	go func() {
+	var g group.Group
+	{
+		stop := make(chan os.Signal, 1)
+		signal.Notify(stop, os.Interrupt)
+		g.Add(func() error {
+			level.Debug(logger).Log("msg", "waiting for interrupt signal")
+			<-stop
+			return nil
+		}, func(error) {})
+	}
+	{
 		users := strings.Split(*usersFlag, ",")
 
-		for {
-			start := time.Now()
+		ctx, cancel := context.WithCancel(context.Background())
+		g.Add(func() error {
+			for {
+				select {
+				case <-ctx.Done():
+					return fmt.Errorf("shit hitting the fan")
+				default:
+					start := time.Now()
 
-			var combined []byte
-			for _, user := range users {
-				out, err := userDu(filepath.Join(*maildirRootPath, user))
-				if err != nil {
-					level.Warn(logger).Log(
-						"msg", "failed to run 'du -s'",
-						"user", user,
+					var combined []byte
+					for _, user := range users {
+						out, err := userDu(filepath.Join(*maildirRootPath, user))
+						if err != nil {
+							level.Warn(logger).Log(
+								"msg", "failed to run 'du -s'",
+								"user", user,
+								"err", err,
+							)
+							continue
+						}
+						combined = append(combined, out...)
+					}
+
+					path := filepath.Join(*maildirDumpPath, fmt.Sprintf("%d", start.Unix()))
+					if err := ioutil.WriteFile(path, combined, 0777); err != nil {
+						level.Warn(logger).Log(
+							"msg", "failed to save dump",
+							"path", path,
+						)
+						continue
+					}
+
+					metrics.duration.Observe(time.Since(start).Seconds())
+				}
+
+				time.Sleep(*intervalFlag)
+			}
+		}, func(err error) {
+			level.Info(logger).Log("msg", "shutting down 'du -s' loop")
+			cancel()
+		})
+	}
+	{
+		// Define where we want to expose metrics via HTTP.
+		http.Handle("/metrics", promhttp.Handler())
+		server := &http.Server{Addr: ":9275"}
+
+		g.Add(func() error {
+			level.Info(logger).Log(
+				"msg", "maildir_exporter now listens for http requests",
+				"addr", ":9275",
+			)
+
+			// Start HTTP server for exposing /metrics to
+			// the Prometheus scraper in background.
+			err := server.ListenAndServe()
+			if err != nil {
+				if err.Error() != "http: Server closed" {
+					level.Error(logger).Log(
+						"msg", "error while running HTTP server for /metrics",
 						"err", err,
 					)
-					continue
+					os.Exit(1)
+				} else {
+					level.Info(logger).Log("msg", "shutting down HTTP server for /metrics")
 				}
-				combined = append(combined, out...)
 			}
+			return nil
+		}, func(err error) {
+			level.Info(logger).Log("msg", "shutting down http server")
+			// Perform graceful shutdown of HTTP server.
+			server.Shutdown(context.Background())
+		})
+	}
 
-			path := filepath.Join(*maildirDumpPath, fmt.Sprintf("%d", start.Unix()))
-			if err := ioutil.WriteFile(path, combined, 0777); err != nil {
-				level.Warn(logger).Log(
-					"msg", "failed to save dump",
-					"path", path,
-				)
-				continue
-			}
-
-			metrics.duration.Observe(time.Since(start).Seconds())
-
-			time.Sleep(*intervalFlag)
-		}
-	}()
-
-	// Define where we want to expose metrics via HTTP.
-	http.Handle("/metrics", promhttp.Handler())
-	server := &http.Server{Addr: ":9275"}
-
-	go func() {
-
-		level.Info(logger).Log(
-			"msg", "maildir_exporter now listens for http requests",
-			"addr", ":9275",
+	if err := g.Run(); err != nil {
+		level.Error(logger).Log(
+			"msg", "failed to run group",
+			"err", err,
 		)
-
-		// Start HTTP server for exposing /metrics to
-		// the Prometheus scraper in background.
-		err := server.ListenAndServe()
-		if err != nil {
-
-			if err.Error() != "http: Server closed" {
-				level.Error(logger).Log(
-					"msg", "error while running HTTP server for /metrics",
-					"err", err,
-				)
-				os.Exit(1)
-			} else {
-				level.Info(logger).Log("msg", "shutting down HTTP server for /metrics")
-			}
-		}
-	}()
-
-	// Wait until we receive a program termination.
-	<-sigs
-	fmt.Println()
-
-	// Perform graceful shutdown of HTTP server.
-	server.Shutdown(context.Background())
+		os.Exit(1)
+	}
 
 	// When gracefully shutting down, upload all dumps to GCS.
 
