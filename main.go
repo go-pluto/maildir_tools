@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"archive/zip"
 	"io/ioutil"
 	"net/http"
 	"os/exec"
@@ -75,6 +77,49 @@ func createMetrics() *Metrics {
 func userDu(path string) ([]byte, error) {
 	cmd := exec.Command("/usr/bin/du", "-s", path)
 	return cmd.CombinedOutput()
+}
+
+// ZipFiles compresses one or many files into a single zip archive file
+func ZipFiles(root string, files []os.FileInfo) (io.Reader, error) {
+
+	newfile := bytes.NewBuffer(nil)
+
+	zipWriter := zip.NewWriter(newfile)
+	defer zipWriter.Close()
+
+	// Add files to zip
+	for _, file := range files {
+		zipfile, err := os.Open(filepath.Join(root, file.Name()))
+		if err != nil {
+			return newfile, err
+		}
+		defer zipfile.Close()
+
+		// Get the file information
+		info, err := zipfile.Stat()
+		if err != nil {
+			return newfile, err
+		}
+
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return newfile, err
+		}
+
+		// Change to deflate to gain better compression
+		// see http://golang.org/pkg/archive/zip/#pkg-constants
+		header.Method = zip.Deflate
+
+		writer, err := zipWriter.CreateHeader(header)
+		if err != nil {
+			return newfile, err
+		}
+		_, err = io.Copy(writer, zipfile)
+		if err != nil {
+			return newfile, err
+		}
+	}
+	return newfile, nil
 }
 
 func main() {
@@ -244,28 +289,29 @@ func main() {
 		os.Exit(1)
 	}
 
+	zipFile, err := ZipFiles(*maildirDumpPath, files)
+	if err != nil {
+		level.Error(logger).Log(
+			"msg", "failed to create zip file",
+			"err", err,
+		)
+		os.Exit(3)
+	}
+
 	bucket := client.Bucket("pluto-benchmark")
-
-	for _, file := range files {
-		objPath := filepath.Join(*workerNameFlag, file.Name())
-		obj := bucket.Object(objPath).NewWriter(ctx)
-
-		content, err := os.Open(filepath.Join(*maildirDumpPath, file.Name()))
-		if err != nil {
-			level.Error(logger).Log("msg", "failed to open dump", "err", err)
-			os.Exit(1)
-		}
-
-		_, err = io.Copy(obj, content)
-		if err != nil {
-			level.Error(logger).Log("msg", "failed to open dump", "err", err)
-			content.Close()
-		}
-
-		content.Close()
-
+	obj := bucket.Object(*workerNameFlag + ".zip").NewWriter(ctx)
+	defer func() {
 		if err = obj.Close(); err != nil {
 			level.Error(logger).Log("msg", "failed to close bucket object", "err", err)
 		}
+	}()
+
+	_, err = io.Copy(obj, zipFile)
+	if err != nil {
+		level.Error(logger).Log(
+			"msg", "failed to upload zipfile to gcs",
+			"err", err,
+		)
+		os.Exit(3)
 	}
 }
