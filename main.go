@@ -115,6 +115,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *workerNameFlag == "" {
+		level.Error(logger).Log("msg", "please specify the worker's name")
+		os.Exit(1)
+	}
+
 	if err := os.MkdirAll(*maildirDumpPath, 0777); err != nil {
 		level.Error(logger).Log("msg", "failed to create dump folder", "path", *maildirDumpPath, "err", err)
 		os.Exit(1)
