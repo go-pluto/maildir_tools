@@ -173,10 +173,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Catch SIGINT and SIGTERM signals.
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-
 	// Connect to GCS for log file uploading.
 	ctx := context.Background()
 	client, err := storage.NewClient(ctx)
@@ -188,10 +184,11 @@ func main() {
 	var g group.Group
 	{
 		stop := make(chan os.Signal, 1)
-		signal.Notify(stop, os.Interrupt)
+		signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 		g.Add(func() error {
 			level.Debug(logger).Log("msg", "waiting for interrupt signal")
-			<-stop
+			sig := <-stop
+			level.Debug(logger).Log("msg", "received sig", "signal", sig)
 			return nil
 		}, func(error) {})
 	}
