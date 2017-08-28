@@ -18,3 +18,12 @@ pipeline:
     when:
       branch: master
       event: push
+
+  docker:
+    image: plugins/docker
+    repo: gopluto/maildir_exporter
+    secrets: [ docker_username, docker_password ]
+    tag: [ du ]
+    when:
+      branch: feature/du
+      event: push
