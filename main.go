@@ -296,7 +296,7 @@ func main() {
 	}
 
 	bucket := client.Bucket("pluto-benchmark")
-	obj := bucket.Object(*workerNameFlag + ".zip").NewWriter(ctx)
+	obj := bucket.Object(fmt.Sprintf("%d-%s.zip", time.Now().Unix(), *workerNameFlag)).NewWriter(ctx)
 	defer func() {
 		if err = obj.Close(); err != nil {
 			level.Error(logger).Log("msg", "failed to close bucket object", "err", err)
