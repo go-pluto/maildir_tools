@@ -198,11 +198,8 @@ func main() {
 		ctx, cancel := context.WithCancel(context.Background())
 		g.Add(func() error {
 			for {
-				select {
-				case <-ctx.Done():
-					return fmt.Errorf("shit hitting the fan")
-				default:
-					start := time.Now()
+				run := func(start time.Time) {
+					defer metrics.duration.Observe(time.Since(start).Seconds())
 
 					var combined []byte
 					for _, user := range users {
@@ -213,7 +210,7 @@ func main() {
 								"user", user,
 								"err", err,
 							)
-							continue
+							return
 						}
 						combined = append(combined, out...)
 					}
@@ -224,13 +221,22 @@ func main() {
 							"msg", "failed to save dump",
 							"path", path,
 						)
-						continue
+						return
 					}
-
-					metrics.duration.Observe(time.Since(start).Seconds())
 				}
 
-				time.Sleep(*intervalFlag)
+				interval := int64(intervalFlag.Seconds())
+				tick := time.Tick(time.Second)
+				for {
+					select {
+					case timestamp := <-tick:
+						if timestamp.Unix()%interval == 0 {
+							run(timestamp)
+						}
+					case <-ctx.Done():
+						return nil
+					}
+				}
 			}
 		}, func(err error) {
 			level.Info(logger).Log("msg", "shutting down 'du -s' loop")
