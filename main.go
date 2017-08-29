@@ -107,7 +107,6 @@ func main() {
 
 	select {}
 
-	// metricsPath := flag.String("metricsPath", "/metrics", "Specify where to expose collected Maildir metrics.")
 	maildirRootPath := flag.String("maildirRootPath", "", "Specify path to directory containing all users' Maildirs.")
 	logLevel := flag.String("logLevel", "", "Set verbosity level of logging.")
 	flag.Parse()
@@ -116,7 +115,7 @@ func main() {
 	logger := initLogger(*logLevel)
 
 	if *maildirRootPath == "" {
-		level.Error(logger).Log("msg", "maildirElementsplease specify a maildirRootPath")
+		level.Error(logger).Log("msg", "please specify a maildirRootPath")
 		os.Exit(1)
 	}
 
